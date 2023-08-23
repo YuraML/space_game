@@ -1,11 +1,15 @@
 import asyncio
 import curses
+import random
 import time
 
 TIC_TIMEOUT = 0.1
 
 
 async def blink(canvas, row, column, symbol='*'):
+    for _ in range(random.randint(0, 10)):
+        await asyncio.sleep(0)
+
     while True:
         canvas.addstr(row, column, symbol, curses.A_DIM)
         for _ in range(20):
@@ -26,9 +30,18 @@ async def blink(canvas, row, column, symbol='*'):
 
 def draw(canvas):
     canvas.border()
-    row = 5
-    columns = [5, 10, 15, 20, 25]
-    coroutines = [blink(canvas, row, column) for column in columns]
+    curses.curs_set(False)
+    stars_amount = 100
+    max_y, max_x = canvas.getmaxyx()
+    
+    coroutines = [
+        blink(
+            canvas,
+            random.randint(1, max_y - 1),
+            random.randint(1, max_x - 1),
+            symbol=random.choice('+*.:')
+        ) for _ in range(stars_amount)
+    ]
 
     while True:
         for coroutine in coroutines.copy():
@@ -43,4 +56,3 @@ def draw(canvas):
 if __name__ == '__main__':
     curses.update_lines_cols()
     curses.wrapper(draw)
-    curses.curs_set(False)
