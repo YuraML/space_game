@@ -6,11 +6,17 @@ import time
 from itertools import cycle
 
 TIC_TIMEOUT = 0.1
+
 SPACE_KEY_CODE = 32
 LEFT_KEY_CODE = 260
 RIGHT_KEY_CODE = 261
 UP_KEY_CODE = 259
 DOWN_KEY_CODE = 258
+
+FRAME_ROW_START = 1
+FRAME_COLUMN_START = 1
+FRAME_ROW_LIMIT = 2
+FRAME_COLUMN_LIMIT = 2
 
 
 def read_controls(canvas):
@@ -86,20 +92,16 @@ async def animate_spaceship(canvas, frames_cycle):
         frame_height, frame_width = get_frame_size(frame)
         draw_frame(canvas, row, column, frame, negative=True)
 
-        new_row = min(max(row + rows_direction, 1), rows - frame_height - 1)
-        new_column = min(max(column + columns_direction, 1), columns - frame_width - 1)
-        if 0 <= new_row and new_row + frame_height <= rows:
-            row = new_row
-        if 0 <= new_column and new_column + frame_width <= columns:
-            column = new_column
+        row = min(max(row + rows_direction, 1), rows - frame_height - 1)
+        column = min(max(column + columns_direction, 1), columns - frame_width - 1)
 
         frame = next(frames_cycle)
         draw_frame(canvas, row, column, frame)
         await asyncio.sleep(0)
 
 
-async def blink(canvas, row, column, symbol='*'):
-    for _ in range(random.randint(0, 10)):
+async def blink(canvas, row, column, symbol='*', offset_tics=0):
+    for _ in range(offset_tics):
         await asyncio.sleep(0)
 
     while True:
@@ -167,14 +169,16 @@ def draw(canvas):
     coroutines = [
         blink(
             canvas,
-            random.randint(1, rows - 2),
-            random.randint(1, columns - 2),
-            symbol=random.choice('+*.:')
+            random.randint(FRAME_ROW_START, rows - FRAME_ROW_LIMIT),
+            random.randint(FRAME_COLUMN_START, columns - FRAME_COLUMN_LIMIT),
+            symbol=random.choice('+*.:'),
+            offset_tics=random.randint(0, 10)
         ) for _ in range(stars_amount)
     ]
 
     spaceship_frames = load_frames()
-    spaceship_cycle = cycle(spaceship_frames)
+    spaceship_doubled_frames = [frame for frame in spaceship_frames for _ in range(2)]
+    spaceship_cycle = cycle(spaceship_doubled_frames)
     spaceship = animate_spaceship(canvas, spaceship_cycle)
     coroutines.append(spaceship)
 
