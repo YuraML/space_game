@@ -5,9 +5,12 @@ import time
 
 from itertools import cycle
 
+from obstacles import Obstacle
 from physics import update_speed
+from services import draw_frame, get_frame_size, explode
 
 TIC_TIMEOUT = 0.1
+STARS_AMOUNT = 100
 
 SPACE_KEY_CODE = 32
 LEFT_KEY_CODE = 260
@@ -52,34 +55,7 @@ def read_controls(canvas):
     return rows_direction, columns_direction, space_pressed
 
 
-def draw_frame(canvas, start_row, start_column, text, negative=False):
-    rows_number, columns_number = canvas.getmaxyx()
-
-    for row, line in enumerate(text.splitlines(), round(start_row)):
-        if row < 0:
-            continue
-
-        if row >= rows_number:
-            break
-
-        for column, symbol in enumerate(line, round(start_column)):
-            if column < 0:
-                continue
-
-            if column >= columns_number:
-                break
-
-            if symbol == ' ':
-                continue
-
-            if row == rows_number - 1 and column == columns_number - 1:
-                continue
-
-            symbol = symbol if not negative else ' '
-            canvas.addch(row, column, symbol)
-
-
-async def fly_garbage(canvas, column, garbage_frame, speed=0.5):
+async def fly_garbage(canvas, column, coroutines, garbage_frame, speed=0.5):
     rows_number, columns_number = canvas.getmaxyx()
 
     column = max(column, 0)
@@ -87,20 +63,42 @@ async def fly_garbage(canvas, column, garbage_frame, speed=0.5):
 
     row = 0
 
+    frame_height, frame_width = get_frame_size(garbage_frame)
+    obstacle = Obstacle(row, column, frame_height, frame_width)
+    obstacles.append(obstacle)
+
     while row < rows_number:
+        if obstacle in obstacles_in_last_collisions:
+            draw_frame(canvas, *obstacle.get_bounding_box_corner_pos(), obstacle.get_bounding_box_frame(),
+                       negative=True)
+
+            center_row = obstacle.row + obstacle.rows_size // 2
+            center_column = obstacle.column + obstacle.columns_size // 2
+            coroutines.append(explode(canvas, center_row, center_column))
+            obstacles_in_last_collisions.remove(obstacle)
+            obstacles.remove(obstacle)
+            return
+
+        draw_frame(canvas, *obstacle.get_bounding_box_corner_pos(), obstacle.get_bounding_box_frame(), negative=True)
         draw_frame(canvas, row, column, garbage_frame)
         await asyncio.sleep(0)
         draw_frame(canvas, row, column, garbage_frame, negative=True)
+
         row += speed
+        obstacle.row = row
+        obstacle.column = column
+
+        draw_frame(canvas, *obstacle.get_bounding_box_corner_pos(), obstacle.get_bounding_box_frame())
 
 
 async def fill_orbit_with_garbage(canvas, garbage_frames, coroutines):
     while True:
         garbage_frame = random.choice(garbage_frames)
         rows, columns = canvas.getmaxyx()
-        column = random.randint(1, columns - 1)
-        coroutines.append(fly_garbage(canvas, column, garbage_frame))
+        frame_height, frame_width = get_frame_size(garbage_frame)
+        column = random.randint(1, columns - frame_width - 1)
 
+        coroutines.append(fly_garbage(canvas, column, coroutines, garbage_frame))
         await sleep(random.randint(0, 40))
 
 
@@ -109,14 +107,7 @@ async def sleep(tics=1):
         await asyncio.sleep(0)
 
 
-def get_frame_size(text):
-    lines = text.splitlines()
-    rows = len(lines)
-    columns = max([len(line) for line in lines])
-    return rows, columns
-
-
-async def animate_spaceship(canvas, frames_cycle):
+async def animate_spaceship(canvas, frames_cycle, coroutines):
     global ROW_SPEED, COLUMN_SPEED
     rows, columns = canvas.getmaxyx()
     row = rows // 2
@@ -124,7 +115,7 @@ async def animate_spaceship(canvas, frames_cycle):
     frame = next(frames_cycle)
 
     while True:
-        rows_direction, columns_direction, _ = read_controls(canvas)
+        rows_direction, columns_direction, space_pressed = read_controls(canvas)
         ROW_SPEED, COLUMN_SPEED = update_speed(
             ROW_SPEED, COLUMN_SPEED,
             rows_direction, columns_direction
@@ -137,6 +128,10 @@ async def animate_spaceship(canvas, frames_cycle):
         column += COLUMN_SPEED
         row = min(max(row, 1), rows - frame_height - 1)
         column = min(max(column, 1), columns - frame_width - 1)
+
+        if space_pressed:
+            fire_coroutine = fire(canvas, row, column + frame_width // 2, coroutines)
+            coroutines.append(fire_coroutine)
 
         frame = next(frames_cycle)
         draw_frame(canvas, row, column, frame)
@@ -160,7 +155,7 @@ async def blink(canvas, row, column, symbol='*', offset_tics=0):
         await sleep(3)
 
 
-async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0):
+async def fire(canvas, start_row, start_column, coroutines, rows_speed=-0.3, columns_speed=0):
     row, column = start_row, start_column
 
     canvas.addstr(round(row), round(column), '*')
@@ -181,6 +176,14 @@ async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0
     curses.beep()
 
     while 0 < row < max_row and 0 < column < max_column:
+        for obstacle in obstacles:
+            if obstacle.has_collision(round(row), round(column)):
+                center_row = obstacle.row + obstacle.rows_size // 2
+                center_column = obstacle.column + obstacle.columns_size // 2
+                coroutines.append(explode(canvas, center_row, center_column))
+                obstacles_in_last_collisions.append(obstacle)
+                return
+
         canvas.addstr(round(row), round(column), symbol)
         await asyncio.sleep(0)
         canvas.addstr(round(row), round(column), ' ')
@@ -198,10 +201,12 @@ def load_frames(frames_of, num_photos):
 
 
 def draw(canvas):
+    global obstacles, obstacles_in_last_collisions
+    obstacles = []
+    obstacles_in_last_collisions = []
     canvas.border()
     curses.curs_set(False)
     canvas.nodelay(True)
-    stars_amount = 100
     rows, columns = canvas.getmaxyx()
 
     coroutines = [
@@ -211,16 +216,16 @@ def draw(canvas):
             random.randint(FRAME_COLUMN_START, columns - FRAME_COLUMN_LIMIT),
             symbol=random.choice('+*.:'),
             offset_tics=random.randint(0, 10)
-        ) for _ in range(stars_amount)
+        ) for _ in range(STARS_AMOUNT)
     ]
 
-    garbage_frames = load_frames('garbage', 3)
+    garbage_frames = load_frames('garbage', 5)
     coroutines.append(fill_orbit_with_garbage(canvas, garbage_frames, coroutines))
 
     spaceship_frames = load_frames('spaceship', 2)
     spaceship_doubled_frames = [frame for frame in spaceship_frames for _ in range(2)]
     spaceship_cycle = cycle(spaceship_doubled_frames)
-    spaceship = animate_spaceship(canvas, spaceship_cycle)
+    spaceship = animate_spaceship(canvas, spaceship_cycle, coroutines)
     coroutines.append(spaceship)
 
     while True:
