@@ -107,7 +107,22 @@ async def sleep(tics=1):
         await asyncio.sleep(0)
 
 
-async def animate_spaceship(canvas, frames_cycle, coroutines):
+async def show_gameover(canvas):
+    with open("animations/game_over.txt", "r") as file:
+        game_over_frame = file.read()
+
+    rows, columns = canvas.getmaxyx()
+    frame_height, frame_width = get_frame_size(game_over_frame)
+
+    row = (rows - frame_height) // 2
+    column = (columns - frame_width) // 2
+
+    while True:
+        draw_frame(canvas, row, column, game_over_frame)
+        await asyncio.sleep(0)
+
+
+async def run_spaceship(canvas, frames_cycle, coroutines):
     global ROW_SPEED, COLUMN_SPEED
     rows, columns = canvas.getmaxyx()
     row = rows // 2
@@ -128,6 +143,15 @@ async def animate_spaceship(canvas, frames_cycle, coroutines):
         column += COLUMN_SPEED
         row = min(max(row, 1), rows - frame_height - 1)
         column = min(max(column, 1), columns - frame_width - 1)
+
+        for obstacle in obstacles:
+            if obstacle.has_collision(row, column, frame_height, frame_width):
+                center_row = row + frame_height // 2
+                center_column = column + frame_width // 2
+                coroutines.append(explode(canvas, center_row, center_column))
+                draw_frame(canvas, row, column, frame, negative=True)
+                coroutines.append(show_gameover(canvas))
+                return
 
         if space_pressed:
             fire_coroutine = fire(canvas, row, column + frame_width // 2, coroutines)
@@ -225,7 +249,7 @@ def draw(canvas):
     spaceship_frames = load_frames('spaceship', 2)
     spaceship_doubled_frames = [frame for frame in spaceship_frames for _ in range(2)]
     spaceship_cycle = cycle(spaceship_doubled_frames)
-    spaceship = animate_spaceship(canvas, spaceship_cycle, coroutines)
+    spaceship = run_spaceship(canvas, spaceship_cycle, coroutines)
     coroutines.append(spaceship)
 
     while True:
