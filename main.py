@@ -74,6 +74,36 @@ def draw_frame(canvas, start_row, start_column, text, negative=False):
             canvas.addch(row, column, symbol)
 
 
+async def fly_garbage(canvas, column, garbage_frame, speed=0.5):
+    rows_number, columns_number = canvas.getmaxyx()
+
+    column = max(column, 0)
+    column = min(column, columns_number - 1)
+
+    row = 0
+
+    while row < rows_number:
+        draw_frame(canvas, row, column, garbage_frame)
+        await asyncio.sleep(0)
+        draw_frame(canvas, row, column, garbage_frame, negative=True)
+        row += speed
+
+
+async def fill_orbit_with_garbage(canvas, garbage_frames, coroutines):
+    while True:
+        garbage_frame = random.choice(garbage_frames)
+        rows, columns = canvas.getmaxyx()
+        column = random.randint(1, columns - 1)
+        coroutines.append(fly_garbage(canvas, column, garbage_frame))
+
+        await sleep(random.randint(0, 40))
+
+
+async def sleep(tics=1):
+    for _ in range(tics):
+        await asyncio.sleep(0)
+
+
 def get_frame_size(text):
     lines = text.splitlines()
     rows = len(lines)
@@ -101,25 +131,20 @@ async def animate_spaceship(canvas, frames_cycle):
 
 
 async def blink(canvas, row, column, symbol='*', offset_tics=0):
-    for _ in range(offset_tics):
-        await asyncio.sleep(0)
+    await sleep(offset_tics)
 
     while True:
         canvas.addstr(row, column, symbol, curses.A_DIM)
-        for _ in range(20):
-            await asyncio.sleep(0)
+        await sleep(20)
 
         canvas.addstr(row, column, symbol)
-        for _ in range(3):
-            await asyncio.sleep(0)
+        await sleep(3)
 
         canvas.addstr(row, column, symbol, curses.A_BOLD)
-        for _ in range(5):
-            await asyncio.sleep(0)
+        await sleep(5)
 
         canvas.addstr(row, column, symbol)
-        for _ in range(3):
-            await asyncio.sleep(0)
+        await sleep(3)
 
 
 async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0):
@@ -150,10 +175,10 @@ async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0
         column += columns_speed
 
 
-def load_frames():
+def load_frames(frames_of, num_photos):
     frames = []
-    for frame_num in range(1, 3):
-        with open(f"animations/rocket_frame_{frame_num}.txt", "r") as file:
+    for frame_num in range(1, num_photos + 1):
+        with open(f"animations/{frames_of}_frame_{frame_num}.txt", "r") as file:
             frames.append(file.read())
 
     return frames
@@ -176,7 +201,10 @@ def draw(canvas):
         ) for _ in range(stars_amount)
     ]
 
-    spaceship_frames = load_frames()
+    garbage_frames = load_frames('garbage', 3)
+    coroutines.append(fill_orbit_with_garbage(canvas, garbage_frames, coroutines))
+
+    spaceship_frames = load_frames('spaceship', 2)
     spaceship_doubled_frames = [frame for frame in spaceship_frames for _ in range(2)]
     spaceship_cycle = cycle(spaceship_doubled_frames)
     spaceship = animate_spaceship(canvas, spaceship_cycle)
