@@ -5,6 +5,8 @@ import time
 
 from itertools import cycle
 
+from physics import update_speed
+
 TIC_TIMEOUT = 0.1
 
 SPACE_KEY_CODE = 32
@@ -17,6 +19,9 @@ FRAME_ROW_START = 1
 FRAME_COLUMN_START = 1
 FRAME_ROW_LIMIT = 2
 FRAME_COLUMN_LIMIT = 2
+
+ROW_SPEED = 0
+COLUMN_SPEED = 0
 
 
 def read_controls(canvas):
@@ -112,6 +117,7 @@ def get_frame_size(text):
 
 
 async def animate_spaceship(canvas, frames_cycle):
+    global ROW_SPEED, COLUMN_SPEED
     rows, columns = canvas.getmaxyx()
     row = rows // 2
     column = columns // 2
@@ -119,11 +125,18 @@ async def animate_spaceship(canvas, frames_cycle):
 
     while True:
         rows_direction, columns_direction, _ = read_controls(canvas)
+        ROW_SPEED, COLUMN_SPEED = update_speed(
+            ROW_SPEED, COLUMN_SPEED,
+            rows_direction, columns_direction
+        )
+
         frame_height, frame_width = get_frame_size(frame)
         draw_frame(canvas, row, column, frame, negative=True)
 
-        row = min(max(row + rows_direction, 1), rows - frame_height - 1)
-        column = min(max(column + columns_direction, 1), columns - frame_width - 1)
+        row += ROW_SPEED
+        column += COLUMN_SPEED
+        row = min(max(row, 1), rows - frame_height - 1)
+        column = min(max(column, 1), columns - frame_width - 1)
 
         frame = next(frames_cycle)
         draw_frame(canvas, row, column, frame)
