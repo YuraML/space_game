@@ -7,7 +7,8 @@ from itertools import cycle
 
 from obstacles import Obstacle
 from physics import update_speed
-from services import draw_frame, get_frame_size, explode
+from services import blink, draw_frame, explode, get_frame_size, get_garbage_delay_tics, load_frames, show_gameover, \
+    sleep
 
 TIC_TIMEOUT = 0.1
 STARS_AMOUNT = 100
@@ -25,6 +26,40 @@ FRAME_COLUMN_LIMIT = 2
 
 ROW_SPEED = 0
 COLUMN_SPEED = 0
+
+year = 1957
+PHRASES = {
+    1957: "First Sputnik",
+    1961: "Gagarin flew!",
+    1969: "Armstrong got on the moon!",
+    1971: "First orbital space station Salute-1",
+    1981: "Flight of the Shuttle Columbia",
+    1998: 'ISS start building',
+    2011: 'Messenger launch to Mercury',
+    2020: "Take the plasma gun! Shoot the garbage!",
+}
+
+
+async def update_year(canvas):
+    global year
+    while True:
+        await sleep(15)
+        year += 1
+
+
+async def show_year_and_phrases(canvas):
+    global year
+    rows, columns = canvas.getmaxyx()
+    current_year_window = canvas.derwin(3, columns - 3, rows - 4, 1)
+
+    while True:
+        draw_frame(current_year_window, 1, 2, f"Year: {year - 1} {PHRASES.get(year - 1, '')}", negative=True)
+        current_year_window.clear()
+        phrase = PHRASES.get(year, "")
+        current_year_text = f"Year: {year} {phrase}"
+        current_year_window.addstr(1, 2, current_year_text)
+        current_year_window.refresh()
+        await asyncio.sleep(0)
 
 
 def read_controls(canvas):
@@ -56,6 +91,7 @@ def read_controls(canvas):
 
 
 async def fly_garbage(canvas, column, coroutines, garbage_frame, speed=0.5):
+    global year
     rows_number, columns_number = canvas.getmaxyx()
 
     column = max(column, 0)
@@ -92,34 +128,18 @@ async def fly_garbage(canvas, column, coroutines, garbage_frame, speed=0.5):
 
 
 async def fill_orbit_with_garbage(canvas, garbage_frames, coroutines):
+    global year
     while True:
-        garbage_frame = random.choice(garbage_frames)
-        rows, columns = canvas.getmaxyx()
-        frame_height, frame_width = get_frame_size(garbage_frame)
-        column = random.randint(1, columns - frame_width - 1)
-
-        coroutines.append(fly_garbage(canvas, column, coroutines, garbage_frame))
-        await sleep(random.randint(0, 40))
-
-
-async def sleep(tics=1):
-    for _ in range(tics):
-        await asyncio.sleep(0)
-
-
-async def show_gameover(canvas):
-    with open("animations/game_over.txt", "r") as file:
-        game_over_frame = file.read()
-
-    rows, columns = canvas.getmaxyx()
-    frame_height, frame_width = get_frame_size(game_over_frame)
-
-    row = (rows - frame_height) // 2
-    column = (columns - frame_width) // 2
-
-    while True:
-        draw_frame(canvas, row, column, game_over_frame)
-        await asyncio.sleep(0)
+        delay = get_garbage_delay_tics(year)
+        if delay:
+            garbage_frame = random.choice(garbage_frames)
+            rows, columns = canvas.getmaxyx()
+            frame_height, frame_width = get_frame_size(garbage_frame)
+            column = random.randint(1, columns - frame_width - 1)
+            coroutines.append(fly_garbage(canvas, column, coroutines, garbage_frame))
+            await sleep(delay)
+        else:
+            await asyncio.sleep(0)
 
 
 async def run_spaceship(canvas, frames_cycle, coroutines):
@@ -153,30 +173,13 @@ async def run_spaceship(canvas, frames_cycle, coroutines):
                 coroutines.append(show_gameover(canvas))
                 return
 
-        if space_pressed:
+        if year >= 2020 and space_pressed:
             fire_coroutine = fire(canvas, row, column + frame_width // 2, coroutines)
             coroutines.append(fire_coroutine)
 
         frame = next(frames_cycle)
         draw_frame(canvas, row, column, frame)
         await asyncio.sleep(0)
-
-
-async def blink(canvas, row, column, symbol='*', offset_tics=0):
-    await sleep(offset_tics)
-
-    while True:
-        canvas.addstr(row, column, symbol, curses.A_DIM)
-        await sleep(20)
-
-        canvas.addstr(row, column, symbol)
-        await sleep(3)
-
-        canvas.addstr(row, column, symbol, curses.A_BOLD)
-        await sleep(5)
-
-        canvas.addstr(row, column, symbol)
-        await sleep(3)
 
 
 async def fire(canvas, start_row, start_column, coroutines, rows_speed=-0.3, columns_speed=0):
@@ -215,15 +218,6 @@ async def fire(canvas, start_row, start_column, coroutines, rows_speed=-0.3, col
         column += columns_speed
 
 
-def load_frames(frames_of, num_photos):
-    frames = []
-    for frame_num in range(1, num_photos + 1):
-        with open(f"animations/{frames_of}_frame_{frame_num}.txt", "r") as file:
-            frames.append(file.read())
-
-    return frames
-
-
 def draw(canvas):
     global obstacles, obstacles_in_last_collisions
     obstacles = []
@@ -244,8 +238,9 @@ def draw(canvas):
     ]
 
     garbage_frames = load_frames('garbage', 5)
+    coroutines.append(show_year_and_phrases(canvas))
     coroutines.append(fill_orbit_with_garbage(canvas, garbage_frames, coroutines))
-
+    coroutines.append(update_year(canvas))
     spaceship_frames = load_frames('spaceship', 2)
     spaceship_doubled_frames = [frame for frame in spaceship_frames for _ in range(2)]
     spaceship_cycle = cycle(spaceship_doubled_frames)
@@ -258,6 +253,7 @@ def draw(canvas):
                 coroutine.send(None)
             except StopIteration:
                 coroutines.remove(coroutine)
+        canvas.border()
         canvas.refresh()
         time.sleep(TIC_TIMEOUT)
 
